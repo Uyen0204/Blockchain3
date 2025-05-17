@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inventory Management DApp</title>
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    label { display: block; margin-top: 10px; }
+    input, button { margin-top: 5px; padding: 6px; width: 300px; }
+    #events { margin-top: 20px; height: 250px; overflow-y: scroll; border: 1px solid #ccc; background: #f9f9f9; padding: 10px; }
+    section { border: 1px solid #ddd; padding: 15px; margin-top: 15px; max-width: 750px; }
+    table { border-collapse: collapse; width: 100%; }
+    table, th, td { border: 1px solid #ccc; }
+    th, td { padding: 8px; text-align: left; }
+    .low-stock { background-color: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+
+  <h1>Inventory Management DApp</h1>
+
+  <button id="connectBtn">Kết nối MetaMask</button>
+  <p>Địa chỉ ví: <span id="userAddress">Chưa kết nối</span></p>
+  <p>Quyền: <span id="userRole">Chưa xác định</span></p>
+
+  <section id="ownerSection" style="display:none;">
+    <h2>Quản lý Owner</h2>
+    <label>Thêm Manager (địa chỉ Ethereum):
+      <input type="text" id="managerAddress" placeholder="0x..." />
+    </label>
+    <button id="addManagerBtn">Thêm Manager</button>
+  </section>
+
+  <section id="managerSection" style="display:none;">
+    <h2>Quản lý Manager</h2>
+
+    <h3>Thêm sản phẩm mới</h3>
+    <label>Tên sản phẩm:
+      <input type="text" id="productName" />
+    </label>
+    <label>Số lượng:
+      <input type="number" id="productQuantity" />
+    </label>
+    <label>Giá:
+      <input type="number" id="productPrice" />
+    </label>
+    <label>Ngưỡng tồn kho đặt lại (Reorder threshold):
+      <input type="number" id="productReorderThreshold" />
+    </label>
+    <button id="addProductBtn">Thêm sản phẩm</button>
+
+    <h3>Cập nhật tồn kho sản phẩm</h3>
+    <label>ID sản phẩm:
+      <input type="number" id="updateProductId" />
+    </label>
+    <label>Số lượng mới:
+      <input type="number" id="updateQuantity" />
+    </label>
+    <button id="updateInventoryBtn">Cập nhật tồn kho</button>
+  </section>
+
+  <section id="productListSection" style="margin-top: 20px; display:none;">
+    <h2>Danh sách sản phẩm</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Tên sản phẩm</th>
+          <th>Tồn kho</th>
+          <th>Giá</th>
+          <th>Ngưỡng đặt lại</th>
+        </tr>
+      </thead>
+      <tbody id="productTableBody"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Sự kiện (Events)</h2>
+    <div id="events"></div>
+  </section>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const contractAddress = "0x2a9e4428C14d1d3E8cd09848c5Fe66e3841CAC30";
+    const contractABI = [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "productId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "newQuantity",
+          "type": "uint256"
+        }
+      ],
+      "name": "InventoryUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "productId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "quantity",
+          "type": "uint256"
+        }
+      ],
+      "name": "ProductAdded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "productId",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "reorderQuantity",
+          "type": "uint256"
+        }
+      ],
+      "name": "ReorderTriggered",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "managers",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function",
+      "constant": true
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function",
+      "constant": true
+    },
+    {
+      "inputs": [],
+      "name": "productCounter",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function",
+      "constant": true
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "products",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "quantity",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "price",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "reorderThreshold",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function",
+      "constant": true
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "string",
+          "name": "_name",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_quantity",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_price",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_reorderThreshold",
+          "type": "uint256"
+        }
+      ],
+      "name": "addProduct",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_productId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_newQuantity",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateInventory",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_productId",
+          "type": "uint256"
+        }
+      ],
+      "name": "reorderIfNeeded",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_manager",
+          "type": "address"
+        }
+      ],
+      "name": "addManager",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_manager",
+          "type": "address"
+        }
+      ],
+      "name": "removeManager",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_productId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getProduct",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function",
+      "constant": true
+    }
+  ];
+
+    let web3;
+    let contract;
+    let accounts = [];
+    let userAddress;
+    const ownerAddress = "0x0BFABb6471D6E953e06407078CC25E02699f543a".toLowerCase();
+
+    const connectBtn = document.getElementById('connectBtn');
+    const userAddressSpan = document.getElementById('userAddress');
+    const userRoleSpan = document.getElementById('userRole');
+    const ownerSection = document.getElementById('ownerSection');
+    const managerSection = document.getElementById('managerSection');
+    const productListSection = document.getElementById('productListSection');
+    const productTableBody = document.getElementById('productTableBody');
+    const eventsDiv = document.getElementById('events');
+
+    async function init() {
+      if (!window.ethereum) {
+        alert("Vui lòng cài đặt MetaMask!");
+        return;
+      }
+      try {
+        accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        userAddress = accounts[0].toLowerCase();
+        userAddressSpan.innerText = userAddress;
+
+        web3 = new Web3(window.ethereum);
+        contract = new web3.eth.Contract(contractABI, contractAddress);
+
+        const isOwner = userAddress === ownerAddress;
+        const isManager = await contract.methods.managers(userAddress).call();
+
+        if (isOwner) {
+          userRoleSpan.innerText = "Owner";
+          ownerSection.style.display = "block";
+          managerSection.style.display = "block"; // Owner cũng là manager
+          productListSection.style.display = "block";
+        } else if (isManager) {
+          userRoleSpan.innerText = "Manager";
+          ownerSection.style.display = "none";
+          managerSection.style.display = "block";
+          productListSection.style.display = "block";
+        } else {
+          userRoleSpan.innerText = "Không có quyền";
+          ownerSection.style.display = "none";
+          managerSection.style.display = "none";
+          productListSection.style.display = "none";
+        }
+
+        await loadProducts();
+        listenEvents();
+
+        window.ethereum.on('accountsChanged', (accs) => {
+          if (accs.length === 0) {
+            userAddressSpan.innerText = "Chưa kết nối";
+            userRoleSpan.innerText = "Chưa xác định";
+            ownerSection.style.display = "none";
+            managerSection.style.display = "none";
+            productListSection.style.display = "none";
+          } else {
+            location.reload();
+          }
+        });
+      } catch (err) {
+        alert("Lỗi kết nối: " + err.message);
+      }
+    }
+
+    connectBtn.onclick = init;
+
+    // Thêm Manager
+    document.getElementById('addManagerBtn').onclick = async () => {
+      const mgrAddress = document.getElementById('managerAddress').value.trim();
+      if (!web3.utils.isAddress(mgrAddress)) {
+        alert("Địa chỉ không hợp lệ!");
+        return;
+      }
+      try {
+        await contract.methods.addManager(mgrAddress).send({ from: userAddress });
+        alert("Đã thêm manager thành công!");
+      } catch (err) {
+        alert("Lỗi thêm manager: " + err.message);
+      }
+    };
+
+    // Thêm sản phẩm
+    document.getElementById('addProductBtn').onclick = async () => {
+      const name = document.getElementById('productName').value.trim();
+      const qty = Number(document.getElementById('productQuantity').value);
+      const price = Number(document.getElementById('productPrice').value);
+      const reorderThreshold = Number(document.getElementById('productReorderThreshold').value);
+
+      if (!name || qty < 0 || price < 0 || reorderThreshold < 0) {
+        alert("Vui lòng nhập đầy đủ và hợp lệ thông tin sản phẩm");
+        return;
+      }
+
+      try {
+        await contract.methods.addProduct(name, qty, price, reorderThreshold).send({ from: userAddress });
+        alert("Thêm sản phẩm thành công!");
+        await loadProducts();
+      } catch (err) {
+        alert("Lỗi thêm sản phẩm: " + err.message);
+      }
+    };
+
+    // Cập nhật tồn kho
+    document.getElementById('updateInventoryBtn').onclick = async () => {
+      const productId = Number(document.getElementById('updateProductId').value);
+      const newQty = Number(document.getElementById('updateQuantity').value);
+
+      if (productId < 0 || newQty < 0) {
+        alert("Nhập ID sản phẩm và số lượng tồn kho hợp lệ");
+        return;
+      }
+
+      try {
+        console.log(`Cập nhật tồn kho sản phẩm ID ${productId} với số lượng mới: ${newQty}`);
+        await contract.methods.updateInventory(productId, newQty).send({ from: userAddress });
+        alert("Cập nhật tồn kho thành công!");
+        await loadProducts();
+      } catch (err) {
+        alert("Lỗi cập nhật tồn kho: " + err.message);
+      }
+    };
+
+    async function loadProducts() {
+      productTableBody.innerHTML = '';
+      const count = await contract.methods.productCounter().call();
+
+      for (let i = 0; i < count; i++) {
+        try {
+          const p = await contract.methods.products(i).call();
+
+          const tr = document.createElement('tr');
+          const lowStockClass = p.quantity < p.reorderThreshold ? 'low-stock' : '';
+          tr.className = lowStockClass;
+          tr.innerHTML = `
+            <td>${i}</td>
+            <td>${p.name}</td>
+            <td>${p.quantity}</td>
+            <td>${p.price}</td>
+            <td>${p.reorderThreshold}</td>
+          `;
+          productTableBody.appendChild(tr);
+        } catch (err) {
+          console.error("Lỗi tải sản phẩm ID", i, err);
+        }
+      }
+    }
+
+    function listenEvents() {
+      contract.events.ProductAdded({})
+        .on('data', event => {
+          const e = event.returnValues;
+          addEventLog(`ProductAdded - ID: ${e.productId}, Tên: ${e.name}, Số lượng: ${e.quantity}`);
+          loadProducts();
+        })
+        .on('error', console.error);
+
+      contract.events.InventoryUpdated({})
+        .on('data', event => {
+          const e = event.returnValues;
+          addEventLog(`InventoryUpdated - ID: ${e.productId}, Tồn kho mới: ${e.newQuantity}`);
+          loadProducts();
+        })
+        .on('error', console.error);
+
+      contract.events.ReorderTriggered({})
+        .on('data', event => {
+          const e = event.returnValues;
+          addEventLog(`⚠️ ReorderTriggered - ID: ${e.productId}, Số lượng đặt lại: ${e.reorderQuantity}`);
+          showReorderAlert(e.productId, e.reorderQuantity);
+        })
+        .on('error', console.error);
+    }
+
+    function addEventLog(message) {
+      const p = document.createElement('p');
+      p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      eventsDiv.prepend(p);
+    }
+
+    function showReorderAlert(productId, quantity) {
+      const alertDiv = document.createElement('div');
+      alertDiv.style.backgroundColor = '#f8d7da';
+      alertDiv.style.color = '#721c24';
+      alertDiv.style.padding = '10px';
+      alertDiv.style.marginTop = '10px';
+      alertDiv.style.border = '1px solid #f5c6cb';
+      alertDiv.innerText = `⚠️ Sản phẩm ID ${productId} tồn kho thấp. Vui lòng đặt thêm hàng.`;
+      document.body.prepend(alertDiv);
+
+      setTimeout(() => alertDiv.remove(), 10000);
+    }
+  });
+</script>
+
+</body>
+</html>
